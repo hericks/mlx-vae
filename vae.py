@@ -119,6 +119,6 @@ if __name__ == "__main__":
         toc = time.perf_counter()
         print(
             f"Epoch {epoch}:",
-            f" Loss {loss},",
+            f" Loss {loss.item():.3f},",
             f" Time {toc - tic:.3f} (s)"
         )

@@ -1,7 +1,11 @@
+import time
+
 import mlx.core as mx
 import mlx.nn as nn
 import mlx.optimizers as optim
+
 import numpy as np
+import matplotlib.pyplot as plt
 
 import mnist
 
@@ -58,13 +62,63 @@ class VAE(nn.Module):
         return mean + mx.exp(0.5 * logvar) * mx.random.normal(mean.shape)
 
 
+def loss_fn(vae, X):
+    recon, mean, logvar = vae(X)
+    recon_loss = 0.5 * mx.sum(mx.square(X - recon), axis=-1)
+    kl_loss = - 0.5 * mx.sum(1 + logvar - mean ** 2 - mx.exp(logvar), axis=-1)
+    return mx.mean(recon_loss + kl_loss)
+
+
+def sample_fn(vae):
+    zs = mx.random.normal((5, 6))
+    samples = vae.decoder(zs)
+
+    fig, axs = plt.subplots(1, 5, figsize=(10, 2))
+    for ax, s in zip(axs, samples):
+        ax.imshow(s.reshape(28, 28))
+
+    fig.savefig("vae.png")
+    plt.close(fig)
+
+
+def batch_iterate(batch_size, X):
+    perm = mx.array(np.random.permutation(X.shape[0]))
+    for s in range(0, X.shape[0], batch_size):
+        ids = perm[s : s + batch_size]
+        yield X[ids]
+
+
 if __name__ == "__main__":
-    hidden_dim = 32
+    hidden_dim = 128
     latent_dim = 6
 
+    num_epochs = 100
+    batch_size = 128
+
+    learning_rate = 3e-4
+
+    mx.set_default_device(mx.cpu)
+
     # Load the data
-    train_images, train_labels, test_images, test_labels = map(mx.array, mnist.mnist())    
+    train_images, _, test_images, _ = map(mx.array, mnist.mnist())    
 
     # Load the model
     vae = VAE(train_images.shape[-1], hidden_dim, latent_dim)
     mx.eval(vae.parameters())
+
+    vae_loss_and_grad_fn = nn.value_and_grad(vae, loss_fn)
+    optimizer = optim.Adam(learning_rate=learning_rate)
+
+    for epoch in range(num_epochs):
+        tic = time.perf_counter()
+        for i, X in enumerate(batch_iterate(batch_size, train_images)):
+            loss, grads = vae_loss_and_grad_fn(vae, X)
+            optimizer.update(vae, grads)
+            mx.eval(vae.parameters(), optimizer.state)
+        sample_fn(vae)
+        toc = time.perf_counter()
+        print(
+            f"Epoch {epoch}:",
+            f" Loss {loss},",
+            f" Time {toc - tic:.3f} (s)"
+        )
